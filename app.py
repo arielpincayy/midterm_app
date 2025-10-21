@@ -5,7 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, roc_auc_score, accuracy_score, confusion_matrix
 
 # Importar las funciones desde nuestro archivo utils
@@ -13,14 +12,15 @@ from utils import load_data, load_model
 
 # --- Configuración de la Página ---
 st.set_page_config(
-    page_title="Dashboard de Churn 📞",
-    page_icon="💼",
+    page_title="Smart Business", # Título para la pestaña del navegador
+    page_icon="logo.png",      # Icono para la pestaña del navegador
     layout="wide"
 )
 
 # --- Carga de Datos y Modelos ---
-df = load_data('telco_churn.csv')
-if df is None:
+df = load_data('data/telco_churn.csv')
+df_test = load_data('data/test_data.csv')
+if df is None and df_test is None:
     st.stop()
 
 model_files = {
@@ -30,14 +30,22 @@ model_files = {
 }
 
 # --- Preparación de Datos para Métricas ---
-# Creamos el split de manera determinista para evaluar los modelos
-X = df.drop('Churn', axis=1)
-y = df['Churn'].map({'Yes': 1, 'No': 0})
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, stratify=y, random_state=42)
+X_test = df_test.drop('Churn', axis=1)
+y_test = df_test['Churn'].map({'Yes': 1, 'No': 0})
 
 
 # --- UI Principal ---
-st.title("Dashboard de Decisión sobre Fuga de Clientes (Churn)")
+
+# --- TÍTULO CON LOGO ---
+col1, col2 = st.columns([1, 6]) # Crea columnas para el logo y el título
+
+with col1:
+    st.image("logo.png", width=180) # Muestra el logo
+
+with col2:
+    st.title("Smart Business: Dashboard de Decisión de Churn")
+    st.markdown("Análisis inteligente para la retención de clientes.")
+
 
 # --- Navegación por Pestañas ---
 tab1, tab2, tab3 = st.tabs(["🔍 **Explorador y Predicción**", "💼 **Impacto de Negocio**", "📊 **Rendimiento de Modelos**"])
@@ -49,29 +57,12 @@ tab1, tab2, tab3 = st.tabs(["🔍 **Explorador y Predicción**", "💼 **Impacto
 with tab1:
     st.header("Análisis Exploratorio y Predicción Individual")
 
-    # --- Barra Lateral de Filtros ---
-    st.sidebar.header("Filtros Globales 🕵️")
-    st.sidebar.markdown("Estos filtros afectan a la sección de exploración.")
-    selected_contract = st.sidebar.multiselect(
-        "Tipo de Contrato", options=df['Contract'].unique(), default=df['Contract'].unique()
-    )
-    selected_payment = st.sidebar.multiselect(
-        "Método de Pago", options=df['PaymentMethod'].unique(), default=df['PaymentMethod'].unique()
-    )
-    df_filtered = df.query(
-        "Contract == @selected_contract and PaymentMethod == @selected_payment"
-    )
-
-    if df_filtered.empty:
-        st.warning("No hay datos que coincidan con los filtros seleccionados.")
-        st.stop()
-
     # --- KPIs Estáticos ---
     st.subheader("Métricas Clave del Segmento")
     kpi1, kpi2 = st.columns(2)
-    churn_rate_yes = df_filtered['Churn'].value_counts(normalize=True).get('Yes', 0)
+    churn_rate_yes = df['Churn'].value_counts(normalize=True).get('Yes', 0)
     kpi1.metric("Tasa de Fuga (Churn)", f"{churn_rate_yes:.2%}")
-    avg_monthly_charge = df_filtered['MonthlyCharges'].mean()
+    avg_monthly_charge = df['MonthlyCharges'].mean()
     kpi2.metric("Cargo Mensual Promedio", f"${avg_monthly_charge:.2f}")
 
     # --- Resultados de la sección EDA (Visualizaciones Específicas) ---
@@ -85,16 +76,16 @@ with tab1:
         st.markdown("##### 📈 Distribución de una Variable")
         dist_var = st.selectbox("Variable:", options=numeric_cols + categorical_cols, key="dist_var")
         if dist_var in numeric_cols:
-            fig = px.histogram(df_filtered, x=dist_var, color="Churn", marginal="box", color_discrete_map={'Yes': '#FF5B5B', 'No': '#00B0F0'})
+            fig = px.histogram(df, x=dist_var, color="Churn", marginal="box", color_discrete_map={'Yes': '#FF5B5B', 'No': '#00B0F0'})
         else:
-            fig = px.bar(df_filtered[dist_var].value_counts().reset_index(), x=dist_var, y='count')
+            fig = px.bar(df[dist_var].value_counts().reset_index(), x=dist_var, y='count')
         st.plotly_chart(fig, use_container_width=True)
 
     with row1_col2:
         st.markdown("##### 📦 Box Plots (Numérico vs. Categórico)")
         cat_box = st.selectbox("Variable Categórica:", options=categorical_cols, key="cat_box", index=categorical_cols.index('Contract'))
         num_box = st.selectbox("Variable Numérica:", options=numeric_cols, key="num_box", index=numeric_cols.index('MonthlyCharges'))
-        fig_box = px.box(df_filtered, x=cat_box, y=num_box, color="Churn", color_discrete_map={'Yes': '#FF5B5B', 'No': '#00B0F0'})
+        fig_box = px.box(df, x=cat_box, y=num_box, color="Churn", color_discrete_map={'Yes': '#FF5B5B', 'No': '#00B0F0'})
         st.plotly_chart(fig_box, use_container_width=True)
 
     st.divider()
@@ -136,6 +127,7 @@ with tab1:
             st.warning("🚨 **ALTO RIESGO DE FUGA DETECTADO**")
             st.info("Acción sugerida: Contactar al cliente proactivamente. Ofrecer un descuento temporal, un nuevo servicio de valor agregado o una mejora en su plan actual para aumentar la retención.")
 
+
 # =====================================================================================
 # --- PESTAÑA 2: IMPACTO DE NEGOCIO ---
 # =====================================================================================
@@ -152,22 +144,75 @@ with tab2:
         df_biz['prediction'] = pipeline_biz.predict(df_biz)
         
         customers_at_risk = df_biz[df_biz['prediction'] == 1]
+        customers_loyal = df_biz[df_biz['prediction'] == 0]
         
         # --- Business KPIs ---
         st.subheader("KPIs de Riesgo y Oportunidad")
-        kpi_biz1, kpi_biz2 = st.columns(2)
+        kpi_biz1, kpi_biz2, kpi_biz3 = st.columns(3)
         
-        pct_at_risk = len(customers_at_risk) / len(df_biz)
+        pct_at_risk = len(customers_at_risk) / len(df_biz) if len(df_biz) > 0 else 0
         kpi_biz1.metric("% de Clientes en Riesgo de Fuga", f"{pct_at_risk:.2%}")
 
         revenue_at_risk = customers_at_risk['MonthlyCharges'].sum()
         kpi_biz2.metric("Ingresos Mensuales en Riesgo", f"${revenue_at_risk:,.2f}")
-        
-        st.markdown("### Simulación de Ahorro por Retención")
-        retention_pct = st.slider("Selecciona el % de clientes en riesgo que podrías retener:", 1, 100, 10)
-        potential_savings = revenue_at_risk * (retention_pct / 100.0)
-        st.success(f"Si retienes al **{retention_pct}%** de los clientes en riesgo, podrías salvar **${potential_savings:,.2f}** en ingresos mensuales.")
 
+        # --- NUEVO: KPI de Valor Promedio del Cliente (ARPU) ---
+        arpu_at_risk = customers_at_risk['MonthlyCharges'].mean() if not customers_at_risk.empty else 0
+        arpu_loyal = customers_loyal['MonthlyCharges'].mean() if not customers_loyal.empty else 0
+        kpi_biz3.metric(
+            label="Valor Promedio Cliente en Riesgo",
+            value=f"${arpu_at_risk:,.2f}",
+            delta=f"${arpu_at_risk - arpu_loyal:,.2f} vs. leales",
+            delta_color="inverse",
+            help="Un delta negativo significa que los clientes en riesgo pagan menos que los leales. Un delta positivo significa que pagan más y son más valiosos."
+        )
+        
+        st.divider()
+
+        st.subheader("Simulación de Campaña de Retención")
+        sim_col1, sim_col2 = st.columns([2, 1])
+
+        with sim_col1:
+            st.markdown("#### Parámetros de la Simulación")
+            retention_pct = st.slider("Selecciona el % de clientes en riesgo que podrías retener:", 1, 100, 10, key="retention_slider")
+            
+            # --- NUEVO: KPI de Costo de Retención ---
+            cost_per_customer = st.number_input("Costo de retención por cliente ($):", min_value=0, value=15, step=1, key="cost_input")
+            
+        # --- Cálculos de la Simulación ---
+        customers_retained = int(len(customers_at_risk) * (retention_pct / 100.0))
+        potential_savings = customers_retained * arpu_at_risk # Más preciso que usar el ingreso total
+        total_campaign_cost = customers_retained * cost_per_customer
+        
+        # --- NUEVO: KPI de Retorno de la Inversión (ROI) ---
+        roi = (potential_savings - total_campaign_cost) / total_campaign_cost if total_campaign_cost > 0 else 0
+        
+        with sim_col2:
+            st.markdown("#### Resultados Estimados")
+            st.metric(
+                label="💰 Ahorro Mensual Potencial",
+                value=f"${potential_savings:,.2f}"
+            )
+            st.metric(
+                label="💸 Costo Total de la Campaña",
+                value=f"${total_campaign_cost:,.2f}"
+            )
+            st.metric(
+                label="📈 ROI de la Campaña",
+                value=f"{roi:.2%}",
+                help="(Ahorro - Costo) / Costo"
+            )
+
+        # Visualización de la simulación
+        fig_sim = go.Figure(go.Bar(
+            x=['Ahorro Potencial', 'Costo de Campaña'],
+            y=[potential_savings, total_campaign_cost],
+            marker_color=['#2ECC71', '#E74C3C'],
+            text=[f"${potential_savings:,.0f}", f"${total_campaign_cost:,.0f}"],
+            textposition='auto'
+        ))
+        fig_sim.update_layout(title_text="Desglose Financiero de la Campaña de Retención", yaxis_title="Monto ($)")
+        st.plotly_chart(fig_sim, use_container_width=True)
 
 # =====================================================================================
 # --- PESTAÑA 3: RENDIMIENTO DE MODELOS ---
@@ -216,7 +261,7 @@ with tab3:
         # --- Feature Importance Plot ---
         st.subheader("⭐ Importancia de Features")
         try:
-            fi_df = pd.read_csv('feature_importance_combined.csv')
+            fi_df = pd.read_csv('data/feature_importance_combined.csv')
         except Exception as e:
             st.warning(f"No se pudo abrir 'feature_importance_combined.csv': {e}")
         else:
@@ -255,3 +300,4 @@ with tab3:
                 )
                 fig_fi.update_layout(yaxis={'categoryorder':'total ascending'}, coloraxis_showscale=False)
                 st.plotly_chart(fig_fi, use_container_width=True)
+
